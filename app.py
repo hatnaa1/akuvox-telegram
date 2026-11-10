@@ -1,10 +1,12 @@
-"""Akuvox SMTP/HTTP to Telegram bridge. Python 3.12+."""
+"""Dahua/Akuvox SMTP/HTTP to Telegram bridge. Python 3.12+."""
 import asyncio
 import hmac
 import json
 import logging
 import math
 import os
+import re
+from email.utils import parseaddr
 import signal
 import threading
 import time
@@ -18,8 +20,36 @@ import requests
 from aiosmtpd.controller import Controller
 from aiosmtpd.smtp import AuthResult, LoginPassword
 
-LOG = logging.getLogger("akuvox")
+LOG = logging.getLogger("dahua")
 MAX_BYTES = 20 * 1024 * 1024
+
+
+def clean_label(value):
+    return " ".join(str(value).split())[:180]
+
+
+def mail_identity(message, bodies, fallback):
+    """Prefer explicit body identity, then sender name/address, then subject.
+
+    Subject is always included independently in the caption. Stable identity keeps
+    cooldown useful when firmware adds timestamps to every subject.
+    """
+    for body in bodies:
+        match = re.search(
+            r"(?im)^\s*(?:camera(?:\s*name)?|device(?:\s*name)?|title|камер(?:ын нэр)?)\s*[:=]\s*([^\r\n]+)", body)
+        if match:
+            return clean_label(match.group(1))
+    name, address = parseaddr(str(message.get("From", "")))
+    if name:
+        return clean_label(name)
+    subject = clean_label(message.get("Subject", ""))
+    # Bracketed camera identifiers are stable even with changing alarm timestamps.
+    match = re.search(r"\[([^]\r\n]+)\]", subject)
+    if match:
+        return clean_label(match.group(1))
+    if address:
+        return clean_label(address)
+    return subject or clean_label(fallback)
 
 
 class DeliveryError(Exception):
@@ -30,7 +60,7 @@ class Bridge:
     def __init__(self):
         self.token = os.environ.get("TELEGRAM_TOKEN", "").strip()
         self.chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-        self.device = os.environ.get("DEVICE_NAME", "Akuvox R20")
+        self.device = os.environ.get("DEVICE_NAME", "Dahua DH-IPC-HDBW1230E-S5")
         self.user = os.environ.get("SMTP_USER", "")
         self.password = os.environ.get("SMTP_PASS", "")
         self.webhook_token = os.environ.get("WEBHOOK_TOKEN", "")
@@ -66,18 +96,20 @@ class Bridge:
             # Never log request URLs: they contain the bot token.
             raise DeliveryError("Telegram connection/response error") from None
 
-    def deliver(self, event, detail, images=(), test=False, text=None):
+    def deliver(self, event, detail, images=(), test=False, text=None, device=None):
         event = event.strip().lower()[:128] or "motion"
+        device = clean_label(device or self.device)
+        key = (device.casefold(), event)
         # Serialize delivery and cooldown admission to avoid concurrent duplicates.
         with self.lock:
             now = time.monotonic()
-            if not test and now - self.last.get(event, -float("inf")) < self.cooldown:
+            if not test and now - self.last.get(key, -float("inf")) < self.cooldown:
                 return False
-            caption = (f"🚨 Домофон хөдөлгөөн илэрлээ\n📷 {self.device}\n"
+            caption = (f"🚨 Хөдөлгөөн / төхөөрөмжийн дохио\n📷 {device}\n"
                        f"🕒 {datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}\n"
                        f"📝 {detail}")[:1024]
             if not images:
-                self.api("sendMessage", {"text": (text or caption)[:4096]})
+                self.api("sendMessage", {"text": (caption + ("\n" + text if text else ""))[:4096]})
             else:
                 for start in range(0, len(images), 10):
                     batch = images[start:start + 10]
@@ -93,7 +125,7 @@ class Bridge:
                 # Bounded keys even if an HTTP client supplies arbitrary event types.
                 self.last = {k: v for k, v in self.last.items()
                              if time.monotonic() - v < self.cooldown}
-                self.last[event] = time.monotonic()
+                self.last[key] = time.monotonic()
             return True
 
     def mail(self, raw):
@@ -118,9 +150,12 @@ class Bridge:
                     bodies.append(data.decode(part.get_content_charset() or "utf-8", errors="replace"))
                 except LookupError:
                     bodies.append(data.decode("utf-8", errors="replace"))
+        device = mail_identity(message, bodies, self.device)
         return self.deliver("motion", subject or "motion", images,
-                            test="test" in subject.lower(),
-                            text="✅ Домофон Email тест амжилттай\n" + subject + "\n" + "\n".join(bodies))
+                            test=bool(re.search(r"\btest\b", subject, re.I)),
+                            text="\n".join(bodies)[:2500] if not images else None,
+                            device=device)
+
 
 
 class MailHandler:
@@ -196,7 +231,8 @@ def http_handler(bridge):
                     elif self.headers.get_content_type() not in ("text/plain", "application/json", "application/x-www-form-urlencoded"):
                         return self.reply(415, {"error": "expected raw JPEG or PNG"})
                 sent = bridge.deliver(value("type", "motion"), value("subject", value("type", "motion")),
-                                      images, test=value("test") == "1")
+                                      images, test=value("test") == "1",
+                                      device=value("device", value("camera", bridge.device)))
                 return self.reply(200, {"status": "sent" if sent else "cooldown"})
             except (TimeoutError, OSError):
                 return self.reply(408, {"error": "request timeout"})
