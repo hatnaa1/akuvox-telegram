@@ -8,7 +8,7 @@ import os
 import signal
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -74,7 +74,7 @@ class Bridge:
             if not test and now - self.last.get(event, -float("inf")) < self.cooldown:
                 return False
             caption = (f"🚨 Домофон хөдөлгөөн илэрлээ\n📷 {self.device}\n"
-                       f"🕒 {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+                       f"🕒 {datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}\n"
                        f"📝 {detail}")[:1024]
             if not images:
                 self.api("sendMessage", {"text": (text or caption)[:4096]})
@@ -222,7 +222,7 @@ def main():
         controller.start()
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
-        LOG.info("Listening SMTP :2525 and HTTP :8090; timestamps in UTC")
+        LOG.info("Listening SMTP :2525 and HTTP :8090; timestamps in Ulaanbaatar (UTC+8)")
         stopped.wait()
     finally:
         if 'worker' in locals():

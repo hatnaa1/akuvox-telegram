@@ -4,9 +4,7 @@ services:
     container_name: akuvox-telegram
     restart: unless-stopped
     env_file: .env
-    ports:
-      - '2525:2525'
-      - '8090:8090'
+    network_mode: host
     init: true
     read_only: true
     security_opt:

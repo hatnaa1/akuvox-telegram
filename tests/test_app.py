@@ -2,6 +2,7 @@ import os
 import smtplib
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
@@ -43,6 +44,14 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(self.calls[-1][0], 'sendPhoto')
         self.bridge.mail(self.message(11).as_bytes())
         self.assertEqual([c[0] for c in self.calls[-2:]], ['sendMediaGroup', 'sendPhoto'])
+
+    def test_caption_timestamp_in_ulaanbaatar(self):
+        instant = datetime(2026, 11, 10, 20, 30, 45, tzinfo=timezone.utc)
+        with patch('app.datetime') as clock:
+            clock.now.side_effect = lambda tz: instant.astimezone(tz)
+            self.bridge.deliver('motion', 'motion', [('snapshot.jpg', b'photo', 'image/jpeg')])
+        clock.now.assert_called_once_with(timezone(timedelta(hours=8)))
+        self.assertIn('🕒 2026-11-11 04:30:45\n', self.calls[-1][1]['caption'])
 
     def test_cooldown_and_failure(self):
         self.assertTrue(self.bridge.deliver('motion', 'motion'))
