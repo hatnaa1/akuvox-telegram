@@ -36,7 +36,7 @@ Linux дээр эхний хоёр тушаалыг `cp .env.example .env` бо�
 | Түлхүүр | Утга |
 |---|---|
 | TELEGRAM_TOKEN | BotFather-оос авсан bot token; заавал |
-| TELEGRAM_CHAT_ID | Сувгийн `-100…` ID эсвэл `@channelusername`; заавал |
+| TELEGRAM_CHAT_ID | Сувгийн `-1003974950304` ID эсвэл `@channelusername`; заавал |
 | DEVICE_NAME | Caption-д харагдах нэр |
 | SMTP_USER / SMTP_PASS | Хоёуланг тохируулбал AUTH LOGIN/PLAIN шаардлагатай. SMTP_USER хоосон бол нэвтрэхгүй имэйл зөвшөөрнө |
 | WEBHOOK_TOKEN | Хоосон биш бол `/event?token=...` заавал таарна |
@@ -74,11 +74,13 @@ NAT дүрмийн packet counter нэмэгдэж буйг шалга. Турш
 
 `http://192.168.100.170` руу админаар орно. Firmware-аас шалтгаалж **Intercom → Motion → Email Notification** хэсэг нь **Intercom → Action → Email Notification** эсвэл **Security → Motion Detection** дотор байж болно.
 
+**Intercom → Motion** нь `id=130&id=10`, **Intercom → Action** нь `id=130&id=11` ашиглана.
+
 | Талбар | Тохиргоо |
 |---|---|
 | Motion Detection | Enabled; шаардлагатай мэдрэмж/хуваарь |
 | Motion Action / Notification | Email / Email Notification идэвхжүүлэх |
-| SMTP Server Address | `192.168.100.245` |
+| SMTP Server Address | `smtp://192.168.100.245:25` (төхөөрөмж дээр шалгасан; `smtp://` схемгүй бол firmware SMTPS SSL ашиглаж, plain SMTP холболт timeout болно) |
 | SMTP Server Port | `25` (port талбаргүй firmware ихэвчлэн 25 ашиглана) |
 | SSL / TLS / STARTTLS | Disabled / None |
 | SMTP Authentication | SMTP_USER тохируулсан бол Enabled |
